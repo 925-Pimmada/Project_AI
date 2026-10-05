@@ -398,6 +398,25 @@ if "Order Date" in df.columns:
 
     )
 
+# =========================================================
+# INTERACTIVE DASHBOARD HELPERS
+# =========================================================
+
+def apply_dashboard_filters(data, selected_category, selected_region, selected_segment):
+    filtered = data.copy()
+
+    if selected_category != "All":
+        filtered = filtered[filtered["Category"] == selected_category]
+
+    if selected_region != "All":
+        filtered = filtered[filtered["Region"] == selected_region]
+
+    if selected_segment != "All":
+        filtered = filtered[filtered["Segment"] == selected_segment]
+
+    return filtered
+
+
 
 
 
@@ -730,467 +749,475 @@ tab1, tab2, tab3, tab4 = st.tabs(
 
 
 # =========================================================
-
 # TAB 1 : OVERVIEW
-
 # =========================================================
-
-
 
 with tab1:
 
-
-
     st.markdown(
-
         '<div class="section-title">📊 Business Overview</div>',
-
         unsafe_allow_html=True
-
     )
 
-
-
-
-
+    # -----------------------------------------------------
+    # GLOBAL DASHBOARD FILTERS
     # -----------------------------------------------------
 
-    # SALES BY CATEGORY
+    st.markdown("#### 🎛️ Dashboard Filters")
 
-    # -----------------------------------------------------
+    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
 
-
-
-    col1, col2 = st.columns(2)
-
-
-
-
-
-    with col1:
-
-
-
-        category_sales = (
-
-            df.groupby("Category")["Sales"]
-
-            .sum()
-
-            .reset_index()
-
+    with filter_col1:
+        selected_category = st.selectbox(
+            "Category",
+            ["All"] + sorted(df["Category"].dropna().unique().tolist()),
+            key="overview_category"
         )
 
+    with filter_col2:
+        selected_region = st.selectbox(
+            "Region",
+            ["All"] + sorted(df["Region"].dropna().unique().tolist()),
+            key="overview_region"
+        )
 
+    with filter_col3:
+        selected_segment = st.selectbox(
+            "Customer Segment",
+            ["All"] + sorted(df["Segment"].dropna().unique().tolist()),
+            key="overview_segment"
+        )
 
-        fig = px.bar(
+    with filter_col4:
+        min_date = df["Order Date"].min()
+        max_date = df["Order Date"].max()
 
-            category_sales,
+        selected_dates = st.date_input(
+            "Order Date",
+            value=(min_date.date(), max_date.date()),
+            min_value=min_date.date(),
+            max_value=max_date.date(),
+            key="overview_dates"
+        )
 
-            x="Category",
+    dashboard_df = apply_dashboard_filters(
+        df,
+        selected_category,
+        selected_region,
+        selected_segment
+    )
 
+    if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+        start_date, end_date = selected_dates
+        dashboard_df = dashboard_df[
+            (dashboard_df["Order Date"].dt.date >= start_date) &
+            (dashboard_df["Order Date"].dt.date <= end_date)
+        ]
+
+    # -----------------------------------------------------
+    # DYNAMIC KPIs
+    # -----------------------------------------------------
+
+    st.markdown("#### 📌 Current Selection")
+
+    k1, k2, k3, k4 = st.columns(4)
+
+    with k1:
+        st.metric("Total Sales", f"${dashboard_df['Sales'].sum():,.0f}")
+
+    with k2:
+        st.metric("Total Profit", f"${dashboard_df['Profit'].sum():,.0f}")
+
+    with k3:
+        st.metric("Orders", f"{dashboard_df['Order ID'].nunique():,}")
+
+    with k4:
+        st.metric("Customers", f"{dashboard_df['Customer ID'].nunique():,}")
+
+    if dashboard_df.empty:
+        st.warning("ไม่พบข้อมูลตาม Filter ที่เลือก")
+    else:
+
+        col1, col2 = st.columns(2)
+
+        # -------------------------------------------------
+        # SALES BY CATEGORY
+        # -------------------------------------------------
+
+        with col1:
+
+            category_sales = (
+                dashboard_df.groupby("Category", as_index=False)
+                .agg(
+                    Sales=("Sales", "sum"),
+                    Profit=("Profit", "sum"),
+                    Orders=("Order ID", "nunique")
+                )
+                .sort_values("Sales", ascending=False)
+            )
+
+            fig_category = px.bar(
+                category_sales,
+                x="Category",
+                y="Sales",
+                title="Sales by Category",
+                text_auto=".2s",
+                custom_data=["Profit", "Orders"]
+            )
+
+            fig_category.update_traces(
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Sales: $%{y:,.2f}<br>"
+                    "Profit: $%{customdata[0]:,.2f}<br>"
+                    "Orders: %{customdata[1]:,}"
+                    "<extra></extra>"
+                )
+            )
+
+            fig_category.update_layout(
+                template="plotly_white",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=20, r=20, t=55, b=20)
+            )
+
+            st.plotly_chart(
+                fig_category,
+                use_container_width=True,
+                key="interactive_category_chart"
+            )
+
+            st.caption("💡 Hover เพื่อดู Sales, Profit และจำนวน Order")
+
+        # -------------------------------------------------
+        # PROFIT BY REGION
+        # -------------------------------------------------
+
+        with col2:
+
+            region_profit = (
+                dashboard_df.groupby("Region", as_index=False)
+                .agg(
+                    Profit=("Profit", "sum"),
+                    Sales=("Sales", "sum"),
+                    Orders=("Order ID", "nunique")
+                )
+                .sort_values("Profit", ascending=False)
+            )
+
+            fig_region = px.bar(
+                region_profit,
+                x="Region",
+                y="Profit",
+                title="Profit by Region",
+                text_auto=".2s",
+                custom_data=["Sales", "Orders"]
+            )
+
+            fig_region.update_traces(
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Profit: $%{y:,.2f}<br>"
+                    "Sales: $%{customdata[0]:,.2f}<br>"
+                    "Orders: %{customdata[1]:,}"
+                    "<extra></extra>"
+                )
+            )
+
+            fig_region.update_layout(
+                template="plotly_white",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=20, r=20, t=55, b=20)
+            )
+
+            st.plotly_chart(
+                fig_region,
+                use_container_width=True,
+                key="interactive_region_chart"
+            )
+
+            st.caption("💡 Hover เพื่อดู Profit, Sales และจำนวน Order")
+
+        # -------------------------------------------------
+        # MONTHLY SALES TREND
+        # -------------------------------------------------
+
+        st.markdown("### 📈 Monthly Sales Trend")
+
+        monthly_sales = (
+            dashboard_df.dropna(subset=["Order Date"])
+            .assign(
+                Month=lambda x: x["Order Date"].dt.to_period("M").astype(str)
+            )
+            .groupby("Month", as_index=False)
+            .agg(
+                Sales=("Sales", "sum"),
+                Profit=("Profit", "sum")
+            )
+        )
+
+        fig_monthly = px.line(
+            monthly_sales,
+            x="Month",
             y="Sales",
-
-            title="Sales by Category",
-
-            text_auto=".2s"
-
+            markers=True,
+            title="Monthly Sales Trend",
+            custom_data=["Profit"]
         )
 
+        fig_monthly.update_traces(
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Sales: $%{y:,.2f}<br>"
+                "Profit: $%{customdata[0]:,.2f}"
+                "<extra></extra>"
+            )
+        )
 
-
-        fig.update_layout(
-
-            template="plotly_dark",
-
+        fig_monthly.update_layout(
+            template="plotly_white",
             paper_bgcolor="rgba(0,0,0,0)",
-
-            plot_bgcolor="rgba(0,0,0,0)"
-
+            plot_bgcolor="rgba(0,0,0,0)",
+            xaxis_title="Month",
+            yaxis_title="Sales",
+            hovermode="x unified",
+            margin=dict(l=20, r=20, t=55, b=20)
         )
-
-
 
         st.plotly_chart(
-
-            fig,
-
-            use_container_width=True
-
+            fig_monthly,
+            use_container_width=True,
+            key="interactive_monthly_chart"
         )
 
+        st.caption("💡 Hover ตามเดือนเพื่อดู Sales และ Profit")
 
+        # -------------------------------------------------
+        # SUB-CATEGORY DETAIL
+        # -------------------------------------------------
 
+        st.markdown("### 🔍 Product Detail")
 
-
-    # -----------------------------------------------------
-
-    # PROFIT BY REGION
-
-    # -----------------------------------------------------
-
-
-
-    with col2:
-
-
-
-        region_profit = (
-
-            df.groupby("Region")["Profit"]
-
-            .sum()
-
-            .reset_index()
-
+        subcategory_sales = (
+            dashboard_df.groupby("Sub-Category", as_index=False)
+            .agg(
+                Sales=("Sales", "sum"),
+                Profit=("Profit", "sum"),
+                Quantity=("Quantity", "sum")
+            )
+            .sort_values("Sales", ascending=False)
         )
 
-
-
-        fig = px.bar(
-
-            region_profit,
-
-            x="Region",
-
-            y="Profit",
-
-            title="Profit by Region",
-
-            text_auto=".2s"
-
+        fig_subcategory = px.bar(
+            subcategory_sales,
+            x="Sub-Category",
+            y="Sales",
+            title="Sales by Sub-Category",
+            custom_data=["Profit", "Quantity"]
         )
 
+        fig_subcategory.update_traces(
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Sales: $%{y:,.2f}<br>"
+                "Profit: $%{customdata[0]:,.2f}<br>"
+                "Quantity: %{customdata[1]:,}"
+                "<extra></extra>"
+            )
+        )
 
-
-        fig.update_layout(
-
-            template="plotly_dark",
-
+        fig_subcategory.update_layout(
+            template="plotly_white",
             paper_bgcolor="rgba(0,0,0,0)",
-
-            plot_bgcolor="rgba(0,0,0,0)"
-
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=20, r=20, t=55, b=20)
         )
-
-
 
         st.plotly_chart(
-
-            fig,
-
-            use_container_width=True
-
+            fig_subcategory,
+            use_container_width=True,
+            key="interactive_subcategory_chart"
         )
-
-
-
-
-
-    # -----------------------------------------------------
-
-    # MONTHLY SALES
-
-    # -----------------------------------------------------
-
-
-
-    monthly_sales = (
-
-        df.dropna(subset=["Order Date"])
-
-        .assign(
-
-            Month=lambda x:
-
-            x["Order Date"].dt.to_period("M")
-
-            .astype(str)
-
-        )
-
-        .groupby("Month")["Sales"]
-
-        .sum()
-
-        .reset_index()
-
-    )
-
-
-
-
-
-    fig = px.line(
-
-        monthly_sales,
-
-        x="Month",
-
-        y="Sales",
-
-        markers=True,
-
-        title="Monthly Sales Trend"
-
-    )
-
-
-
-    fig.update_layout(
-
-        template="plotly_dark",
-
-        paper_bgcolor="rgba(0,0,0,0)",
-
-        plot_bgcolor="rgba(0,0,0,0)",
-
-        xaxis_title="Month",
-
-        yaxis_title="Sales"
-
-    )
-
-
-
-    st.plotly_chart(
-
-        fig,
-
-        use_container_width=True
-
-    )
-
-
-
 
 
 # =========================================================
-
 # TAB 2 : CUSTOMER ANALYTICS
-
 # =========================================================
-
-
 
 with tab2:
 
-
-
     st.markdown(
-
         '<div class="section-title">👥 Customer Analytics</div>',
-
         unsafe_allow_html=True
-
     )
 
-
-
-
-
-    # -----------------------------------------------------
-
-    # CLUSTER DISTRIBUTION
-
-    # -----------------------------------------------------
-
-
+    cluster_profiles = {
+        0: {
+            "name": "High Value Customer",
+            "description": "มูลค่าการซื้อสูง ซื้อค่อนข้างบ่อย และสร้างกำไรสูง",
+        },
+        1: {
+            "name": "Regular Customer",
+            "description": "ซื้อค่อนข้างสม่ำเสมอ และมีมูลค่าการซื้อระดับปานกลาง",
+        },
+        2: {
+            "name": "Inactive / At-Risk Customer",
+            "description": "ไม่ได้ซื้อมานาน ซื้อไม่บ่อย และมีมูลค่าการซื้อค่อนข้างต่ำ",
+        }
+    }
 
     cluster_count = (
-
         customer_segments["Cluster"]
-
         .value_counts()
-
         .sort_index()
-
         .reset_index()
-
     )
 
+    cluster_count.columns = ["Cluster", "Customers"]
 
-
-    cluster_count.columns = [
-
-        "Cluster",
-
-        "Customers"
-
-    ]
-
-
-
-
+    cluster_count["Group"] = cluster_count["Cluster"].map(
+        lambda x: cluster_profiles.get(
+            int(x), {"name": "Unknown"}
+        )["name"]
+    )
 
     col1, col2 = st.columns(2)
 
-
-
-
-
     with col1:
 
-
-
-        fig = px.bar(
-
+        fig_cluster = px.bar(
             cluster_count,
-
             x="Cluster",
-
             y="Customers",
-
-            title="Customers by Cluster",
-
-            text_auto=True
-
+            text="Customers",
+            color="Group",
+            hover_data={
+                "Cluster": True,
+                "Customers": True,
+                "Group": True
+            },
+            title="Customers by Cluster"
         )
 
-
-
-        fig.update_layout(
-
-            template="plotly_dark",
-
+        fig_cluster.update_layout(
+            template="plotly_white",
             paper_bgcolor="rgba(0,0,0,0)",
-
-            plot_bgcolor="rgba(0,0,0,0)"
-
+            plot_bgcolor="rgba(0,0,0,0)",
+            showlegend=False
         )
-
-
 
         st.plotly_chart(
-
-            fig,
-
-            use_container_width=True
-
+            fig_cluster,
+            use_container_width=True,
+            key="interactive_cluster_bar"
         )
-
-
-
-
 
     with col2:
 
-
-
-        fig = px.pie(
-
+        fig_cluster_pie = px.pie(
             cluster_count,
-
-            names="Cluster",
-
+            names="Group",
             values="Customers",
-
-            title="Customer Cluster Distribution"
-
+            hole=0.55,
+            title="Customer Cluster Distribution",
+            hover_data=["Cluster"]
         )
 
-
-
-        fig.update_layout(
-
-            template="plotly_dark",
-
+        fig_cluster_pie.update_layout(
+            template="plotly_white",
             paper_bgcolor="rgba(0,0,0,0)",
-
-            plot_bgcolor="rgba(0,0,0,0)"
-
+            margin=dict(l=20, r=20, t=55, b=20)
         )
-
-
 
         st.plotly_chart(
-
-            fig,
-
-            use_container_width=True
-
+            fig_cluster_pie,
+            use_container_width=True,
+            key="interactive_cluster_pie"
         )
 
+    st.markdown("### 🎯 Explore a Customer Group")
 
+    selected_cluster = st.selectbox(
+        "เลือก Cluster เพื่อดูรายละเอียด",
+        sorted(customer_segments["Cluster"].dropna().unique()),
+        format_func=lambda x: (
+            f"Cluster {int(x)} — "
+            f"{cluster_profiles.get(int(x), {'name': 'Unknown'})['name']}"
+        ),
+        key="selected_cluster"
+    )
 
+    profile = cluster_profiles.get(
+        int(selected_cluster),
+        {"name": "Unknown", "description": "ไม่พบข้อมูล"}
+    )
 
+    cluster_customers = customer_segments[
+        customer_segments["Cluster"] == selected_cluster
+    ]
 
-    # -----------------------------------------------------
+    p1, p2, p3 = st.columns(3)
 
-    # CUSTOMER SEARCH
+    with p1:
+        st.metric("Customers", f"{len(cluster_customers):,}")
 
-    # -----------------------------------------------------
+    with p2:
+        percentage = (
+            len(cluster_customers) / len(customer_segments) * 100
+            if len(customer_segments) > 0
+            else 0
+        )
+        st.metric("Share", f"{percentage:.1f}%")
 
+    with p3:
+        st.metric("Cluster", int(selected_cluster))
 
+    st.info(
+        f"**{profile['name']}** — {profile['description']}"
+    )
 
     st.markdown("### 🔎 Find Customer Cluster")
 
-
-
-
-
     customer_id = st.text_input(
-
         "Customer ID",
-
-        placeholder="Example: AA-10315"
-
+        placeholder="Example: AA-10315",
+        key="customer_search"
     )
-
-
-
-
 
     if customer_id:
 
-
-
         customer = customer_segments[
-
-            customer_segments["Customer ID"]
-
-            == customer_id
-
+            customer_segments["Customer ID"].astype(str).str.upper()
+            == customer_id.strip().upper()
         ]
-
-
-
-
 
         if customer.empty:
 
-
-
-            st.error(
-
-                "ไม่พบ Customer ID นี้"
-
-            )
-
-
+            st.error("ไม่พบ Customer ID นี้")
 
         else:
 
+            cluster = int(customer.iloc[0]["Cluster"])
 
-
-            cluster = int(
-
-                customer.iloc[0]["Cluster"]
-
+            profile = cluster_profiles.get(
+                cluster,
+                {"name": "Unknown", "description": "ไม่พบข้อมูล"}
             )
-
-
 
             st.success(
-
-                f"Customer **{customer_id}** "
-
-                f"อยู่ใน **Cluster {cluster}**"
-
+                f"Customer **{customer_id.strip().upper()}** "
+                f"อยู่ใน **Cluster {cluster} — {profile['name']}**"
             )
 
+            st.caption(profile["description"])
 
-
+            st.dataframe(
+                customer,
+                use_container_width=True,
+                hide_index=True
+            )
 
 
 # =========================================================
