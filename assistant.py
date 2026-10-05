@@ -13,7 +13,7 @@ from google.genai import types
 
 # ถ้ามี .env อยู่ก็ยังสามารถใช้ GEMINI_MODEL ได้
 # แต่ไม่จำเป็นต้องมี GEMINI_API_KEY แล้ว
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 
 # =========================================================
