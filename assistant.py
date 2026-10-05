@@ -1,5 +1,4 @@
 import os
-
 import pandas as pd
 import joblib
 
@@ -11,9 +10,11 @@ from google.genai import types
 # 1. MODEL CONFIGURATION
 # =========================================================
 
-# ถ้ามี .env อยู่ก็ยังสามารถใช้ GEMINI_MODEL ได้
-# แต่ไม่จำเป็นต้องมี GEMINI_API_KEY แล้ว
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+# สามารถเปลี่ยน model ผ่าน environment variable ได้
+MODEL_NAME = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.5-flash-lite"
+)
 
 
 # =========================================================
@@ -35,7 +36,60 @@ profit_model = joblib.load(
 
 
 # =========================================================
-# 4. CUSTOMER SEGMENT FUNCTION
+# 4. CUSTOMER CLUSTER PROFILES
+# =========================================================
+
+CLUSTER_PROFILES = {
+
+    0: {
+        "name": "High Value Customer",
+        "description": (
+            "ลูกค้าที่มีมูลค่าการซื้อสูง "
+            "ซื้อค่อนข้างบ่อย และสร้างกำไรสูง"
+        ),
+        "characteristics": {
+            "Recency": "ประมาณ 126 วัน",
+            "Frequency": "ประมาณ 7.6 ครั้ง",
+            "Monetary": "ประมาณ $8,112",
+            "Total Profit": "ประมาณ $1,687",
+            "Average Discount": "ประมาณ 12%"
+        }
+    },
+
+    1: {
+        "name": "Regular Customer",
+        "description": (
+            "ลูกค้าที่มีพฤติกรรมการซื้อค่อนข้างสม่ำเสมอ "
+            "มีมูลค่าการซื้อและกำไรอยู่ในระดับปานกลาง"
+        ),
+        "characteristics": {
+            "Recency": "ประมาณ 77 วัน",
+            "Frequency": "ประมาณ 6.7 ครั้ง",
+            "Monetary": "ประมาณ $2,396",
+            "Total Profit": "ประมาณ $195",
+            "Average Discount": "ประมาณ 16%"
+        }
+    },
+
+    2: {
+        "name": "Inactive / At-Risk Customer",
+        "description": (
+            "ลูกค้าที่ไม่ได้ซื้อมานาน "
+            "ซื้อไม่บ่อย และมีมูลค่าการซื้อค่อนข้างต่ำ"
+        ),
+        "characteristics": {
+            "Recency": "ประมาณ 484 วัน",
+            "Frequency": "ประมาณ 3.7 ครั้ง",
+            "Monetary": "ประมาณ $1,219",
+            "Total Profit": "ประมาณ $116",
+            "Average Discount": "ประมาณ 18%"
+        }
+    }
+}
+
+
+# =========================================================
+# 5. CUSTOMER SEGMENT FUNCTION
 # =========================================================
 
 def get_customer_segment(customer_id):
@@ -53,15 +107,61 @@ def get_customer_segment(customer_id):
 
     row = customer.iloc[0]
 
+    cluster = int(row["Cluster"])
+
+    profile = CLUSTER_PROFILES.get(
+        cluster,
+        {
+            "name": "Unknown",
+            "description": "ไม่พบคำอธิบายของ Cluster นี้",
+            "characteristics": {}
+        }
+    )
+
     return {
         "found": True,
         "customer_id": customer_id,
-        "cluster": int(row["Cluster"])
+        "cluster": cluster,
+        "cluster_name": profile["name"],
+        "description": profile["description"],
+        "characteristics": profile["characteristics"]
     }
 
 
 # =========================================================
-# 5. PROFIT PREDICTION FUNCTION
+# 6. GET CLUSTER PROFILE
+# =========================================================
+
+def get_cluster_profile(cluster):
+
+    try:
+        cluster = int(cluster)
+    except (ValueError, TypeError):
+        return {
+            "found": False,
+            "message": "Cluster must be 0, 1, or 2."
+        }
+
+    if cluster not in CLUSTER_PROFILES:
+        return {
+            "found": False,
+            "cluster": cluster,
+            "message": "Cluster must be 0, 1, or 2."
+        }
+
+    profile = CLUSTER_PROFILES[cluster]
+
+    return {
+        "found": True,
+        "cluster": cluster,
+        "cluster_name": profile["name"],
+        "description": profile["description"],
+        "characteristics": profile["characteristics"]
+    }
+
+
+# =========================================================
+# 7. PROFIT PREDICTION FUNCTION
 # =========================================================
 
 def predict_profit(
@@ -76,23 +176,14 @@ def predict_profit(
 ):
 
     new_order = pd.DataFrame({
-
         "Sales": [sales],
-
         "Quantity": [quantity],
-
         "Discount": [discount],
-
         "Category": [category],
-
         "Sub-Category": [sub_category],
-
         "Region": [region],
-
         "Ship Mode": [ship_mode],
-
         "Segment": [segment]
-
     })
 
     prediction = profit_model.predict(
@@ -112,32 +203,30 @@ def predict_profit(
 
 
 # =========================================================
-# 6. TOOL DEFINITIONS
+# 8. TOOL DECLARATION
 # =========================================================
 
 get_customer_segment_declaration = (
     types.FunctionDeclaration(
-
         name="get_customer_segment",
 
         description=(
-            "Find the customer cluster assigned "
-            "by the K-Means customer segmentation model."
+            "Find the customer cluster assigned by "
+            "the K-Means customer segmentation model. "
+            "Also returns the cluster name, description, "
+            "and customer characteristics."
         ),
 
         parameters=types.Schema(
-
             type="OBJECT",
 
             properties={
-
                 "customer_id": types.Schema(
                     type="STRING",
                     description=(
                         "Customer ID, for example AA-10315"
                     )
                 )
-
             },
 
             required=[
@@ -148,9 +237,47 @@ get_customer_segment_declaration = (
 )
 
 
+# =========================================================
+# 9. CLUSTER PROFILE TOOL
+# =========================================================
+
+get_cluster_profile_declaration = (
+    types.FunctionDeclaration(
+        name="get_cluster_profile",
+
+        description=(
+            "Get the meaning and characteristics of a "
+            "customer cluster from the K-Means segmentation model. "
+            "Use this tool when the user asks what Cluster 0, "
+            "Cluster 1, or Cluster 2 represents."
+        ),
+
+        parameters=types.Schema(
+            type="OBJECT",
+
+            properties={
+                "cluster": types.Schema(
+                    type="INTEGER",
+                    description=(
+                        "Customer cluster number: 0, 1, or 2"
+                    )
+                )
+            },
+
+            required=[
+                "cluster"
+            ]
+        )
+    )
+)
+
+
+# =========================================================
+# 10. PROFIT PREDICTION TOOL DECLARATION
+# =========================================================
+
 predict_profit_declaration = (
     types.FunctionDeclaration(
-
         name="predict_profit",
 
         description=(
@@ -159,7 +286,6 @@ predict_profit_declaration = (
         ),
 
         parameters=types.Schema(
-
             type="OBJECT",
 
             properties={
@@ -206,11 +332,9 @@ predict_profit_declaration = (
                     type="STRING",
                     description="Customer segment"
                 )
-
             },
 
             required=[
-
                 "sales",
                 "quantity",
                 "discount",
@@ -219,7 +343,6 @@ predict_profit_declaration = (
                 "region",
                 "ship_mode",
                 "segment"
-
             ]
         )
     )
@@ -227,24 +350,20 @@ predict_profit_declaration = (
 
 
 # =========================================================
-# 7. GEMINI TOOLS
+# 11. GEMINI TOOLS
 # =========================================================
 
 tools = types.Tool(
-
     function_declarations=[
-
         get_customer_segment_declaration,
-
+        get_cluster_profile_declaration,
         predict_profit_declaration
-
     ]
-
 )
 
 
 # =========================================================
-# 8. SYSTEM INSTRUCTION
+# 12. SYSTEM INSTRUCTION
 # =========================================================
 
 SYSTEM_INSTRUCTION = """
@@ -253,32 +372,63 @@ You are an AI Business Analyst Assistant.
 
 You help users analyze Superstore business data.
 
-You have access to two machine learning tools.
+You have access to three machine learning tools.
 
 1. get_customer_segment
-   Uses the project's K-Means customer segmentation model.
+   Uses the project's K-Means customer segmentation model
+   to find a customer's cluster.
 
-2. predict_profit
-   Uses the project's trained XGBoost regression model.
+2. get_cluster_profile
+   Explains what each customer cluster means and describes
+   the characteristics of that cluster.
+
+3. predict_profit
+   Uses the project's trained XGBoost regression model
+   to predict profit for a new order.
+
 
 IMPORTANT RULES:
 
 - Never invent customer cluster results.
 
+- Always use get_customer_segment when the user asks
+  which cluster a specific customer belongs to.
+
+- Always use get_cluster_profile when the user asks
+  what a cluster means or what type of customer belongs
+  to a particular cluster.
+
+- If the user asks:
+  "Cluster 1 เป็นอะไร"
+  "Cluster 1 คืออะไร"
+  "กลุ่ม 1 เป็นลูกค้าแบบไหน"
+  "ลูกค้ากลุ่มนี้มีลักษณะอย่างไร"
+
+  use get_cluster_profile.
+
+- If the user asks:
+  "AA-10315 อยู่กลุ่มไหน"
+
+  use get_customer_segment.
+
+- If the user asks about both a customer and the meaning
+  of that customer's cluster, use both tools if necessary.
+
 - Never calculate or guess predicted profit yourself.
 
-- Always use the appropriate tool when the user asks
-  about customer segmentation or profit prediction.
+- Always use predict_profit when the user asks
+  about predicted profit.
 
-- If a question requires both tools,
-  use both tools.
+- If a question requires multiple tools,
+  use all appropriate tools.
 
 - Use previous conversation context when appropriate.
 
-- If the user refers to "this customer",
+- If the user refers to:
+  "this customer",
   "that customer",
-  "the same customer",
-  or similar expressions,
+  "the same customer"
+
   use the customer information from previous conversation.
 
 - If required information is missing,
@@ -286,7 +436,9 @@ IMPORTANT RULES:
 
 - Answer clearly in Thai.
 
-- A predicted profit is a machine learning prediction,
+- Explain cluster names in Thai when appropriate.
+
+- A predicted profit is a Machine Learning prediction,
   not a guaranteed actual profit.
 
 - Do not claim that a prediction is actual historical profit.
@@ -295,7 +447,7 @@ IMPORTANT RULES:
 
 
 # =========================================================
-# 9. EXECUTE TOOL
+# 13. EXECUTE TOOL
 # =========================================================
 
 def execute_function(
@@ -306,13 +458,18 @@ def execute_function(
     if function_name == "get_customer_segment":
 
         return get_customer_segment(
-
             customer_id=arguments[
                 "customer_id"
             ]
-
         )
 
+    elif function_name == "get_cluster_profile":
+
+        return get_cluster_profile(
+            cluster=arguments[
+                "cluster"
+            ]
+        )
 
     elif function_name == "predict_profit":
 
@@ -349,22 +506,20 @@ def execute_function(
             segment=arguments[
                 "segment"
             ]
-
         )
-
 
     else:
 
         return {
-
-            "error":
-            f"Unknown function: {function_name}"
-
+            "error": (
+                f"Unknown function: "
+                f"{function_name}"
+            )
         }
 
 
 # =========================================================
-# 10. CREATE GEMINI CONFIG
+# 14. CREATE GEMINI CONFIG
 # =========================================================
 
 def create_gemini_config():
@@ -378,12 +533,11 @@ def create_gemini_config():
         ],
 
         temperature=0.2
-
     )
 
 
 # =========================================================
-# 11. ASK ASSISTANT
+# 15. ASK ASSISTANT
 # =========================================================
 
 def ask_assistant(
@@ -418,7 +572,6 @@ def ask_assistant(
     # -----------------------------------------------------
 
     if conversation_history is None:
-
         conversation_history = []
 
 
@@ -440,15 +593,11 @@ def ask_assistant(
             role="user",
 
             parts=[
-
                 types.Part(
                     text=user_question
                 )
-
             ]
-
         )
-
     )
 
 
@@ -463,7 +612,6 @@ def ask_assistant(
         contents=conversation_history,
 
         config=config
-
     )
 
 
@@ -474,9 +622,7 @@ def ask_assistant(
     if not response.function_calls:
 
         conversation_history.append(
-
             response.candidates[0].content
-
         )
 
         return response.text
@@ -487,9 +633,7 @@ def ask_assistant(
     # -----------------------------------------------------
 
     conversation_history.append(
-
         response.candidates[0].content
-
     )
 
 
@@ -504,7 +648,6 @@ def ask_assistant(
         arguments = dict(
             function_call.args
         )
-
 
         print()
         print(
@@ -523,7 +666,6 @@ def ask_assistant(
             function_name,
 
             arguments
-
         )
 
 
@@ -547,9 +689,7 @@ def ask_assistant(
                 response={
                     "result": result
                 }
-
             )
-
         )
 
 
@@ -564,13 +704,9 @@ def ask_assistant(
                 role="user",
 
                 parts=[
-
                     function_response
-
                 ]
-
             )
-
         )
 
 
@@ -585,7 +721,6 @@ def ask_assistant(
         contents=conversation_history,
 
         config=config
-
     )
 
 
@@ -594,9 +729,7 @@ def ask_assistant(
     # -----------------------------------------------------
 
     conversation_history.append(
-
         final_response.candidates[0].content
-
     )
 
 
@@ -604,7 +737,7 @@ def ask_assistant(
 
 
 # =========================================================
-# 12. TERMINAL TEST
+# 16. TERMINAL TEST
 # =========================================================
 
 if __name__ == "__main__":
@@ -625,7 +758,6 @@ if __name__ == "__main__":
     api_key = input(
         "Enter Gemini API Key: "
     ).strip()
-
 
     conversation_history = []
 
@@ -653,10 +785,10 @@ if __name__ == "__main__":
                 api_key,
 
                 conversation_history
-
             )
 
             print()
+
             print(
                 "Assistant:",
                 answer
@@ -664,12 +796,15 @@ if __name__ == "__main__":
 
             print()
 
+
         except Exception as e:
 
             print()
+
             print(
                 "Error:",
                 e
             )
 
             print()
+            
