@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 
 
 
-from assistant import ask_assistant
 
 
 
@@ -338,43 +337,23 @@ def load_model():
 
 # =========================================================
 
-# TRY LOAD
-
+# LOAD DATA ONLY AT STARTUP
 # =========================================================
-
-
+# Keep the dashboard independent from the ML model and Gemini.
+# This prevents a model/dependency issue from blocking the whole app.
 
 try:
-
-
-
     df, customer_segments = load_data()
-
-
-
-    profit_model = load_model()
-
-
-
 except Exception as e:
-
-
-
-    st.error(
-
-        f"ไม่สามารถโหลดข้อมูลหรือ Model ได้: {e}"
-
+    st.error(f"ไม่สามารถโหลดข้อมูลได้: {e}")
+    st.info(
+        "ตรวจสอบว่าไฟล์ data/superstore_clean.csv และ "
+        "data/customer_segments.csv อยู่ใน GitHub repository เดียวกับ app.py"
     )
-
-
-
     st.stop()
 
+profit_model = None
 
-
-
-
-# =========================================================
 
 # DATA PREPARATION
 
@@ -583,9 +562,9 @@ with st.sidebar:
 
 
 
-    st.success(
+    st.info(
 
-        "XGBoost: Loaded"
+        "XGBoost: Ready (โหลดเมื่อกด Predict)"
 
     )
 
@@ -765,7 +744,7 @@ with tab1:
 
     st.markdown("#### 🎛️ Dashboard Filters")
 
-    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
 
     with filter_col1:
         selected_category = st.selectbox(
@@ -788,31 +767,12 @@ with tab1:
             key="overview_segment"
         )
 
-    with filter_col4:
-        min_date = df["Order Date"].min()
-        max_date = df["Order Date"].max()
-
-        selected_dates = st.date_input(
-            "Order Date",
-            value=(min_date.date(), max_date.date()),
-            min_value=min_date.date(),
-            max_value=max_date.date(),
-            key="overview_dates"
-        )
-
     dashboard_df = apply_dashboard_filters(
         df,
         selected_category,
         selected_region,
         selected_segment
     )
-
-    if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
-        start_date, end_date = selected_dates
-        dashboard_df = dashboard_df[
-            (dashboard_df["Order Date"].dt.date >= start_date) &
-            (dashboard_df["Order Date"].dt.date <= end_date)
-        ]
 
     # -----------------------------------------------------
     # DYNAMIC KPIs
@@ -861,7 +821,6 @@ with tab1:
                 x="Category",
                 y="Sales",
                 title="Sales by Category",
-                text_auto=".2s",
                 custom_data=["Profit", "Orders"]
             )
 
@@ -911,7 +870,6 @@ with tab1:
                 x="Region",
                 y="Profit",
                 title="Profit by Region",
-                text_auto=".2s",
                 custom_data=["Sales", "Orders"]
             )
 
@@ -1498,11 +1456,9 @@ with tab3:
 
 
 
-            prediction = profit_model.predict(
+            profit_model = load_model()
 
-                new_order
-
-            )
+            prediction = profit_model.predict(new_order)
 
 
 
@@ -1876,7 +1832,7 @@ with tab4:
 
                     try:
 
-
+                        from assistant import ask_assistant
 
                         answer = ask_assistant(
 
